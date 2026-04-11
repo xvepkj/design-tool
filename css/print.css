@@ -1,0 +1,47 @@
+@media print {
+  body {
+    background: white;
+    color: black;
+    overflow: visible;
+    height: auto;
+  }
+
+  .app-header,
+  .export-toolbar,
+  .toast {
+    display: none !important;
+  }
+
+  .tab-content,
+  .tab-panel,
+  .export-panel,
+  .export-preview {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .export-preview-inner {
+    box-shadow: none;
+    padding: 0;
+    max-width: none;
+  }
+
+  .export-preview-inner h2 {
+    page-break-after: avoid;
+  }
+
+  .export-preview-inner h3 {
+    page-break-after: avoid;
+  }
+
+  .export-preview-inner img {
+    page-break-inside: avoid;
+    max-width: 100%;
+  }
+
+  hr {
+    page-break-after: avoid;
+  }
+}

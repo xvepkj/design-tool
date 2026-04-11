@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Tool</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/print.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <!-- Auth Screen -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        <span>Design Tool</span>
+      </div>
+      <h2 id="authTitle">Sign In</h2>
+      <div id="authError" class="auth-error" style="display:none;"></div>
+      <form id="authForm" autocomplete="on">
+        <div class="auth-field">
+          <label for="authEmail">Email</label>
+          <input type="email" id="authEmail" placeholder="you@example.com" required autocomplete="email">
+        </div>
+        <div class="auth-field">
+          <label for="authPass">Password</label>
+          <input type="password" id="authPass" placeholder="Min 6 characters" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="authSubmitBtn">Sign In</button>
+      </form>
+      <p class="auth-switch">
+        <span id="authSwitchText">Don't have an account?</span>
+        <a href="#" id="authSwitchLink">Sign Up</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- App (hidden until logged in) -->
+  <div id="appShell" style="display:none;flex-direction:column;height:100vh;">
+  <header class="app-header">
+    <div class="app-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+      Design Tool
+    </div>
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="notes">Notes</button>
+      <button class="tab-btn" data-tab="export">Export</button>
+    </nav>
+    <div class="header-actions">
+      <span class="user-email" id="userEmail"></span>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">&#9790;</button>
+    </div>
+  </header>
+
+  <div class="tab-content">
+    <!-- Notes Tab -->
+    <section class="tab-panel active" id="tab-notes">
+      <aside class="panel-sidebar">
+        <div class="sidebar-header">
+          <button class="btn btn-primary btn-full" id="newNoteBtn">+ New Note</button>
+        </div>
+        <div class="sidebar-list" id="notesList"></div>
+      </aside>
+      <div class="panel-main" id="notesMain">
+        <div class="empty-state" id="notesEmpty">
+          <div class="empty-state-icon">&#128221;</div>
+          <h3>No notes yet</h3>
+          <p>Create a new note to start capturing your ideas. You can paste images from Excalidraw or any other tool.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Export Tab -->
+    <section class="tab-panel" id="tab-export">
+      <div class="export-panel">
+        <div class="export-toolbar">
+          <button class="btn btn-primary" id="downloadPdfBtn">Download PDF</button>
+          <button class="btn btn-secondary" id="downloadMdBtn">Download Markdown</button>
+          <button class="btn btn-secondary" id="copyMdBtn">Copy Markdown</button>
+          <div class="spacer"></div>
+          <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Raw Markdown</button>
+        </div>
+        <div class="export-preview" id="exportPreview">
+          <div class="export-preview-inner" id="exportContent"></div>
+        </div>
+        <div class="export-raw" id="exportRaw" style="display:none;">
+          <pre id="exportRawContent"></pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Draw Modal -->
+  <div class="draw-overlay" id="drawOverlay" style="display:none;">
+    <div class="draw-modal">
+      <div class="draw-toolbar">
+        <div class="draw-tools">
+          <button class="btn btn-sm draw-tool-btn" data-tool="select" title="Select / Move">&#9995;</button>
+          <button class="btn btn-sm draw-tool-btn active" data-tool="pen" title="Pen">&#9998;</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="rect" title="Rectangle">&#9634;</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="circle" title="Circle">&#9675;</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="line" title="Line">&#9135;</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="arrow" title="Arrow">&#10230;</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="text" title="Text">T</button>
+          <button class="btn btn-sm draw-tool-btn" data-tool="eraser" title="Eraser">&#128465;</button>
+        </div>
+        <div class="draw-separator"></div>
+        <label class="draw-label">Color: <input type="color" id="drawColor" value="#222222"></label>
+        <label class="draw-label">Size: <input type="range" id="drawSize" min="1" max="20" value="3"></label>
+        <label class="draw-label"><input type="checkbox" id="drawFill" checked> Fill</label>
+        <label class="draw-label">Opacity: <input type="range" id="drawOpacity" min="0" max="100" value="50" style="width:60px;"><span id="drawOpacityVal">50%</span></label>
+        <div class="draw-separator"></div>
+        <button class="btn btn-secondary btn-sm" id="drawUndo">Undo</button>
+        <button class="btn btn-secondary btn-sm" id="drawClear">Clear</button>
+        <div class="spacer"></div>
+        <button class="btn btn-primary btn-sm" id="drawInsert">Insert into Note</button>
+        <button class="btn btn-secondary btn-sm" id="drawCancel">Cancel</button>
+      </div>
+      <canvas id="drawCanvas" width="900" height="560"></canvas>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  </div><!-- end appShell -->
+
+  <script>
+  // === Firebase Init ===
+  firebase.initializeApp({
+    apiKey: "AIzaSyAB6gPEBkX8dXA2cLDjXhu45PTE-wK-mPA",
+    authDomain: "design-tool-1b98f.firebaseapp.com",
+    projectId: "design-tool-1b98f",
+    storageBucket: "design-tool-1b98f.firebasestorage.app",
+    messagingSenderId: "236007997029",
+    appId: "1:236007997029:web:69b8f960ebc0c7034dd08c",
+    measurementId: "G-W04ZR3CPB2"
+  });
+  var auth = firebase.auth();
+  var db = firebase.firestore();
+
+  // === Auth ===
+  var isSignUp = false;
+  var authForm = document.getElementById('authForm');
+  var authError = document.getElementById('authError');
+  var authTitle = document.getElementById('authTitle');
+  var authSubmitBtn = document.getElementById('authSubmitBtn');
+  var authSwitchText = document.getElementById('authSwitchText');
+  var authSwitchLink = document.getElementById('authSwitchLink');
+
+  authSwitchLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    isSignUp = !isSignUp;
+    authTitle.textContent = isSignUp ? 'Sign Up' : 'Sign In';
+    authSubmitBtn.textContent = isSignUp ? 'Sign Up' : 'Sign In';
+    authSwitchText.textContent = isSignUp ? 'Already have an account?' : "Don't have an account?";
+    authSwitchLink.textContent = isSignUp ? 'Sign In' : 'Sign Up';
+    authError.style.display = 'none';
+  });
+
+  authForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var email = document.getElementById('authEmail').value.trim();
+    var pass = document.getElementById('authPass').value;
+    authSubmitBtn.disabled = true;
+    authSubmitBtn.textContent = 'Please wait...';
+    authError.style.display = 'none';
+
+    var promise = isSignUp
+      ? auth.createUserWithEmailAndPassword(email, pass)
+      : auth.signInWithEmailAndPassword(email, pass);
+
+    promise.catch(function(err) {
+      authError.textContent = err.message;
+      authError.style.display = 'block';
+      authSubmitBtn.disabled = false;
+      authSubmitBtn.textContent = isSignUp ? 'Sign Up' : 'Sign In';
+    });
+  });
+
+  // === Store (localStorage + Firestore sync) ===
+  var STORAGE_KEY = 'designToolData';
+  var currentUserId = null;
+
+  var Store = {
+    _state: null,
+    _timeout: null,
+    _listeners: [],
+    load: function() {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        this._state = raw ? JSON.parse(raw) : { notes: [] };
+      } catch(e) { this._state = { notes: [] }; }
+      if (!Array.isArray(this._state.notes)) this._state.notes = [];
+      return this._state;
+    },
+    save: function(s) {
+      this._state = s || this._state;
+      clearTimeout(this._timeout);
+      var self = this;
+      this._timeout = setTimeout(function() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(self._state));
+        self._listeners.forEach(function(cb) { cb(self._state); });
+        // Sync to Firestore
+        if (currentUserId) {
+          self._syncToFirestore();
+        }
+      }, 300);
+    },
+    get: function() { return this._state || this.load(); },
+    onChange: function(cb) { this._listeners.push(cb); },
+    _syncTimeout: null,
+    _syncToFirestore: function() {
+      clearTimeout(this._syncTimeout);
+      var self = this;
+      this._syncTimeout = setTimeout(function() {
+        if (!currentUserId) return;
+        var data = JSON.parse(JSON.stringify(self._state));
+        // Firestore has 1MB doc limit; store notes as subcollection if too large
+        db.collection('users').doc(currentUserId).set({ notes: data.notes, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+          .catch(function(err) { console.warn('Firestore sync failed:', err.message); });
+      }, 1000);
+    },
+    loadFromFirestore: function(cb) {
+      if (!currentUserId) { cb(); return; }
+      db.collection('users').doc(currentUserId).get().then(function(doc) {
+        if (doc.exists && doc.data().notes) {
+          var data = doc.data();
+          Store._state = { notes: data.notes };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(Store._state));
+        } else {
+          // First time: push local data to cloud
+          Store.load();
+          Store._syncToFirestore();
+        }
+        cb();
+      }).catch(function(err) {
+        console.warn('Firestore load failed:', err.message);
+        Store.load();
+        cb();
+      });
+    }
+  };
+
+  // === Utils ===
+  function uid() { return crypto.randomUUID(); }
+  function now() { return new Date().toISOString(); }
+  function truncate(str, len) { len = len || 80; if (!str) return ''; return str.length > len ? str.slice(0, len) + '...' : str; }
+  function escHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+  function resolveImages(html, images) {
+    if (!images || !images.length) return html;
+    images.forEach(function(img) {
+      html = html.replace(new RegExp('img::' + img.id, 'g'), img.dataUrl);
+    });
+    return html;
+  }
+
+  function mdToHtml(md) {
+    var html = escHtml(md);
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+    html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:4px;margin:8px 0;">');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    html = html.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
+    html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+    html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+    html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^---$/gm, '<hr>');
+    html = html.replace(/^(?!<[hupolbd]|<li|<hr|<pre|<block|<img)(.+)$/gm, '<p>$1</p>');
+    html = html.replace(/\n{2,}/g, '\n');
+    return html;
+  }
+
+  function showToast(msg) {
+    var toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, 2000);
+  }
+
+  // === Notes ===
+  var activeNoteId = null;
+  var noteSaveTimeout = null;
+
+  function initNotes(state) {
+    renderNotesList(state.notes);
+    document.getElementById('newNoteBtn').addEventListener('click', function() {
+      var note = { id: uid(), title: 'Untitled Note', content: '', images: [], createdAt: now(), updatedAt: now() };
+      var s = Store.get();
+      s.notes.unshift(note);
+      Store.save(s);
+      selectNote(note.id);
+      renderNotesList(s.notes);
+    });
+  }
+
+  function renderNotesList(notes) {
+    var list = document.getElementById('notesList');
+    if (notes.length === 0) { list.innerHTML = ''; return; }
+    list.innerHTML = notes.map(function(n) {
+      return '<div class="sidebar-item ' + (n.id === activeNoteId ? 'active' : '') + '" data-id="' + n.id + '">' +
+        '<div class="sidebar-item-info">' +
+        '<div class="sidebar-item-title">' + escHtml(n.title || 'Untitled Note') + '</div>' +
+        '<div class="sidebar-item-preview">' + escHtml(truncate(n.content)) + '</div>' +
+        '</div>' +
+        '<button class="delete-btn" data-delete="' + n.id + '" title="Delete note">&times;</button>' +
+        '</div>';
+    }).join('');
+
+    list.querySelectorAll('.sidebar-item').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        if (e.target.closest('.delete-btn')) return;
+        selectNote(el.dataset.id);
+      });
+    });
+    list.querySelectorAll('.delete-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (!confirm('Delete this note?')) return;
+        var s = Store.get();
+        s.notes = s.notes.filter(function(n) { return n.id !== btn.dataset.delete; });
+        Store.save(s);
+        if (activeNoteId === btn.dataset.delete) { activeNoteId = null; showNotesEmpty(); }
+        renderNotesList(s.notes);
+      });
+    });
+  }
+
+  function selectNote(id) {
+    activeNoteId = id;
+    var s = Store.get();
+    var note = s.notes.find(function(n) { return n.id === id; });
+    if (!note) return;
+    renderNotesList(s.notes);
+    renderNoteEditor(note);
+  }
+
+  function renderNoteEditor(note) {
+    var main = document.getElementById('notesMain');
+    main.innerHTML =
+      '<input type="text" class="note-title-input" id="noteTitle" value="' + escHtml(note.title) + '" placeholder="Note title...">' +
+      '<div class="note-editor">' +
+        '<div class="note-editor-pane">' +
+          '<div class="pane-header">Markdown <button class="btn btn-secondary btn-sm draw-open-btn" id="openDrawBtn" style="margin-left:auto;font-size:11px;padding:2px 8px;">Draw</button></div>' +
+          '<textarea class="note-textarea" id="noteContent" placeholder="Write your notes here...\n\nPaste images with Ctrl+V or drag & drop them.">' + escHtml(note.content) + '</textarea>' +
+        '</div>' +
+        '<div class="note-editor-pane">' +
+          '<div class="pane-header">Preview</div>' +
+          '<div class="note-preview" id="notePreview"></div>' +
+        '</div>' +
+      '</div>';
+
+    var titleInput = document.getElementById('noteTitle');
+    var contentArea = document.getElementById('noteContent');
+    var preview = document.getElementById('notePreview');
+
+    updateNotePreview(note, preview);
+
+    titleInput.addEventListener('input', function() {
+      note.title = titleInput.value;
+      note.updatedAt = now();
+      noteDebounce();
+      renderNotesList(Store.get().notes);
+    });
+
+    contentArea.addEventListener('input', function() {
+      note.content = contentArea.value;
+      note.updatedAt = now();
+      noteDebounce();
+      updateNotePreview(note, preview);
+    });
+
+    // Image paste
+    contentArea.addEventListener('paste', function(e) {
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image/') === 0) {
+          e.preventDefault();
+          handleImageFile(items[i].getAsFile(), note, contentArea, preview);
+          return;
+        }
+      }
+    });
+
+    // Open draw tool
+    document.getElementById('openDrawBtn').addEventListener('click', function() {
+      openDrawTool(note, contentArea, preview);
+    });
+
+    // Image drag & drop
+    var editorPane = contentArea.closest('.note-editor-pane');
+    editorPane.addEventListener('dragover', function(e) { e.preventDefault(); editorPane.classList.add('drop-active'); });
+    editorPane.addEventListener('dragleave', function() { editorPane.classList.remove('drop-active'); });
+    editorPane.addEventListener('drop', function(e) {
+      e.preventDefault();
+      editorPane.classList.remove('drop-active');
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (!files) return;
+      for (var i = 0; i < files.length; i++) {
+        if (files[i].type.indexOf('image/') === 0) handleImageFile(files[i], note, contentArea, preview);
+      }
+    });
+  }
+
+  function handleImageFile(file, note, textarea, preview) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      var imgId = uid();
+      note.images.push({ id: imgId, dataUrl: reader.result, name: file.name || 'pasted-image' });
+      var ref = '\n![' + (file.name || 'image') + '](img::' + imgId + ')\n';
+      var pos = textarea.selectionStart;
+      textarea.value = textarea.value.slice(0, pos) + ref + textarea.value.slice(pos);
+      note.content = textarea.value;
+      note.updatedAt = now();
+      Store.save(Store.get());
+      updateNotePreview(note, preview);
+      showToast('Image added');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function updateNotePreview(note, el) {
+    var html = mdToHtml(note.content);
+    el.innerHTML = resolveImages(html, note.images);
+  }
+
+  function noteDebounce() {
+    clearTimeout(noteSaveTimeout);
+    noteSaveTimeout = setTimeout(function() { Store.save(Store.get()); }, 300);
+  }
+
+  function showNotesEmpty() {
+    document.getElementById('notesMain').innerHTML =
+      '<div class="empty-state"><div class="empty-state-icon">&#128221;</div><h3>No notes yet</h3>' +
+      '<p>Create a new note to start capturing your ideas. You can paste images from Excalidraw or any other tool.</p></div>';
+  }
+
+  // === Draw Tool ===
+  // Object-based drawing system (like Excalidraw) - shapes can be selected, moved, resized
+  var drawObjects = [];    // all drawn objects
+  var drawHistory = [];    // undo stack of object snapshots
+  var drawActiveTool = 'pen';
+  var drawSelectedIdx = -1;
+  var drawDragOffset = null;
+  var drawResizeHandle = null;
+
+  function openDrawTool(note, textarea, preview) {
+    var overlay = document.getElementById('drawOverlay');
+    var canvas = document.getElementById('drawCanvas');
+    var ctx = canvas.getContext('2d');
+    var colorInput = document.getElementById('drawColor');
+    var sizeInput = document.getElementById('drawSize');
+    var fillCheck = document.getElementById('drawFill');
+    var opacityInput = document.getElementById('drawOpacity');
+    var opacityVal = document.getElementById('drawOpacityVal');
+
+    opacityInput.addEventListener('input', function() { opacityVal.textContent = opacityInput.value + '%'; });
+
+    overlay.style.display = 'flex';
+    drawObjects = [];
+    drawHistory = [];
+    drawSelectedIdx = -1;
+    drawActiveTool = 'pen';
+    setActiveTool('pen');
+
+    renderCanvas(ctx, canvas);
+    pushHistory();
+
+    var drawing = false;
+    var startPos = null;
+    var currentPenPoints = [];
+    var previewSnapshot = null;
+
+    // Tool switching
+    document.querySelectorAll('.draw-tool-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { setActiveTool(btn.dataset.tool); });
+    });
+
+    function setActiveTool(tool) {
+      drawActiveTool = tool;
+      drawSelectedIdx = -1;
+      document.querySelectorAll('.draw-tool-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.tool === tool);
+      });
+      canvas.style.cursor = tool === 'select' ? 'default' : tool === 'text' ? 'text' : tool === 'eraser' ? 'pointer' : 'crosshair';
+      renderCanvas(ctx, canvas);
+    }
+
+    function getPos(e) {
+      var rect = canvas.getBoundingClientRect();
+      var sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+      if (e.touches) return { x: (e.touches[0].clientX - rect.left) * sx, y: (e.touches[0].clientY - rect.top) * sy };
+      return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+    }
+
+    function onStart(e) {
+      e.preventDefault();
+      var pos = getPos(e);
+      startPos = pos;
+
+      if (drawActiveTool === 'select') {
+        // Check resize handles first
+        if (drawSelectedIdx >= 0) {
+          var handle = hitTestHandles(drawObjects[drawSelectedIdx], pos);
+          if (handle) { drawResizeHandle = handle; drawing = true; previewSnapshot = JSON.parse(JSON.stringify(drawObjects[drawSelectedIdx])); return; }
+        }
+        // Check object hit
+        var idx = hitTestObjects(pos);
+        drawSelectedIdx = idx;
+        if (idx >= 0) { drawDragOffset = { x: pos.x, y: pos.y }; drawing = true; previewSnapshot = JSON.parse(JSON.stringify(drawObjects[idx])); }
+        renderCanvas(ctx, canvas);
+        return;
+      }
+
+      if (drawActiveTool === 'text') {
+        var text = prompt('Enter text:');
+        if (text) {
+          drawObjects.push({ type: 'text', x: pos.x, y: pos.y, text: text, color: colorInput.value, size: Math.max(16, parseInt(sizeInput.value) * 4), font: 'sans-serif' });
+          pushHistory();
+          renderCanvas(ctx, canvas);
+        }
+        return;
+      }
+
+      if (drawActiveTool === 'eraser') {
+        drawing = true;
+        // Erase element under cursor immediately
+        var idx = hitTestObjects(pos);
+        if (idx >= 0) {
+          drawObjects.splice(idx, 1);
+          renderCanvas(ctx, canvas);
+        }
+        return;
+      }
+
+      drawing = true;
+      if (drawActiveTool === 'pen') {
+        currentPenPoints = [pos];
+      }
+    }
+
+    function onMove(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      var pos = getPos(e);
+
+      if (drawActiveTool === 'eraser') {
+        var idx = hitTestObjects(pos);
+        if (idx >= 0) {
+          drawObjects.splice(idx, 1);
+          renderCanvas(ctx, canvas);
+        }
+        return;
+      }
+
+      if (drawActiveTool === 'select' && drawSelectedIdx >= 0) {
+        var obj = drawObjects[drawSelectedIdx];
+        if (drawResizeHandle) {
+          resizeObject(obj, drawResizeHandle, pos, previewSnapshot);
+        } else if (drawDragOffset) {
+          var dx = pos.x - drawDragOffset.x, dy = pos.y - drawDragOffset.y;
+          moveObject(obj, dx, dy);
+          drawDragOffset = { x: pos.x, y: pos.y };
+        }
+        renderCanvas(ctx, canvas);
+        return;
+      }
+
+      if (drawActiveTool === 'pen') {
+        currentPenPoints.push(pos);
+        renderCanvas(ctx, canvas);
+        ctx.beginPath();
+        ctx.lineWidth = parseInt(sizeInput.value);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.strokeStyle = colorInput.value;
+        for (var i = 0; i < currentPenPoints.length; i++) {
+          if (i === 0) ctx.moveTo(currentPenPoints[i].x, currentPenPoints[i].y);
+          else ctx.lineTo(currentPenPoints[i].x, currentPenPoints[i].y);
+        }
+        ctx.stroke();
+        return;
+      }
+
+      // Shape preview (rect, circle, line)
+      renderCanvas(ctx, canvas);
+      drawShapePreview(ctx, startPos, pos, colorInput.value, parseInt(sizeInput.value), fillCheck.checked, parseInt(opacityInput.value) / 100);
+    }
+
+    function onEnd(e) {
+      if (!drawing) return;
+      drawing = false;
+      var pos = e.type === 'mouseleave' ? null : getPos(e);
+
+      if (drawActiveTool === 'eraser') {
+        pushHistory();
+        return;
+      }
+
+      if (drawActiveTool === 'select') {
+        drawDragOffset = null; drawResizeHandle = null; previewSnapshot = null;
+        pushHistory();
+        renderCanvas(ctx, canvas);
+        return;
+      }
+
+      if (drawActiveTool === 'pen') {
+        if (currentPenPoints.length > 1) {
+          drawObjects.push({ type: 'pen', points: currentPenPoints.slice(), color: colorInput.value, size: parseInt(sizeInput.value) });
+          pushHistory();
+        }
+        currentPenPoints = [];
+        renderCanvas(ctx, canvas);
+        return;
+      }
+
+      if (!pos || !startPos) return;
+      var obj = createShapeObject(startPos, pos, colorInput.value, parseInt(sizeInput.value), fillCheck.checked, parseInt(opacityInput.value) / 100);
+      if (obj) { drawObjects.push(obj); pushHistory(); }
+      renderCanvas(ctx, canvas);
+    }
+
+    canvas.onmousedown = onStart;
+    canvas.onmousemove = onMove;
+    canvas.onmouseup = onEnd;
+    canvas.onmouseleave = onEnd;
+    canvas.ontouchstart = onStart;
+    canvas.ontouchmove = onMove;
+    canvas.ontouchend = onEnd;
+
+    function createShapeObject(from, to, color, size, fill, fillOpacity) {
+      var x = Math.min(from.x, to.x), y = Math.min(from.y, to.y);
+      var w = Math.abs(to.x - from.x), h = Math.abs(to.y - from.y);
+      if (drawActiveTool === 'rect') return { type: 'rect', x: x, y: y, w: w, h: h, color: color, size: size, fill: fill, fillOpacity: fillOpacity };
+      if (drawActiveTool === 'circle') return { type: 'circle', cx: (from.x + to.x) / 2, cy: (from.y + to.y) / 2, rx: w / 2, ry: h / 2, color: color, size: size, fill: fill, fillOpacity: fillOpacity };
+      if (drawActiveTool === 'line') return { type: 'line', x1: from.x, y1: from.y, x2: to.x, y2: to.y, color: color, size: size };
+      if (drawActiveTool === 'arrow') return { type: 'arrow', x1: from.x, y1: from.y, x2: to.x, y2: to.y, color: color, size: size };
+      return null;
+    }
+
+    function drawShapePreview(ctx, from, to, color, size, fill, fillOpacity) {
+      ctx.strokeStyle = color; ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      var x = Math.min(from.x, to.x), y = Math.min(from.y, to.y);
+      var w = Math.abs(to.x - from.x), h = Math.abs(to.y - from.y);
+      if (drawActiveTool === 'rect') {
+        if (fill) { ctx.save(); ctx.globalAlpha = fillOpacity; ctx.fillStyle = color; ctx.fillRect(x, y, w, h); ctx.restore(); }
+        ctx.strokeRect(x, y, w, h);
+      } else if (drawActiveTool === 'circle') {
+        ctx.beginPath();
+        ctx.ellipse((from.x + to.x) / 2, (from.y + to.y) / 2, w / 2 || 1, h / 2 || 1, 0, 0, Math.PI * 2);
+        if (fill) { ctx.save(); ctx.globalAlpha = fillOpacity; ctx.fillStyle = color; ctx.fill(); ctx.restore(); }
+      } else if (drawActiveTool === 'line' || drawActiveTool === 'arrow') {
+        ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+        if (drawActiveTool === 'arrow') drawArrowHead(ctx, from.x, from.y, to.x, to.y, size);
+      }
+    }
+
+    // Undo
+    document.getElementById('drawUndo').onclick = function() {
+      if (drawHistory.length > 1) {
+        drawHistory.pop();
+        drawObjects = JSON.parse(drawHistory[drawHistory.length - 1]);
+        drawSelectedIdx = -1;
+        renderCanvas(ctx, canvas);
+      }
+    };
+
+    // Clear
+    document.getElementById('drawClear').onclick = function() {
+      drawObjects = [];
+      drawSelectedIdx = -1;
+      pushHistory();
+      renderCanvas(ctx, canvas);
+    };
+
+    // Insert
+    document.getElementById('drawInsert').onclick = function() {
+      drawSelectedIdx = -1;
+      renderCanvas(ctx, canvas);
+      var dataUrl = canvas.toDataURL('image/png');
+      var imgId = uid();
+      note.images.push({ id: imgId, dataUrl: dataUrl, name: 'drawing' });
+      var ref = '\n![drawing](img::' + imgId + ')\n';
+      var pos = textarea.selectionStart;
+      textarea.value = textarea.value.slice(0, pos) + ref + textarea.value.slice(pos);
+      note.content = textarea.value;
+      note.updatedAt = now();
+      Store.save(Store.get());
+      updateNotePreview(note, preview);
+      overlay.style.display = 'none';
+      cleanup();
+      showToast('Drawing inserted');
+    };
+
+    // Cancel
+    document.getElementById('drawCancel').onclick = function() {
+      overlay.style.display = 'none';
+      cleanup();
+    };
+
+    // Delete selected with Delete/Backspace key
+    function onKeyDown(e) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && drawSelectedIdx >= 0 && drawActiveTool === 'select') {
+        drawObjects.splice(drawSelectedIdx, 1);
+        drawSelectedIdx = -1;
+        pushHistory();
+        renderCanvas(ctx, canvas);
+        e.preventDefault();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+
+    function cleanup() {
+      canvas.onmousedown = null; canvas.onmousemove = null; canvas.onmouseup = null;
+      canvas.onmouseleave = null; canvas.ontouchstart = null; canvas.ontouchmove = null; canvas.ontouchend = null;
+      document.removeEventListener('keydown', onKeyDown);
+    }
+  }
+
+  function pushHistory() {
+    drawHistory.push(JSON.stringify(drawObjects));
+    if (drawHistory.length > 50) drawHistory.shift();
+  }
+
+  function renderCanvas(ctx, canvas) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawObjects.forEach(function(obj, idx) {
+      drawObject(ctx, obj);
+      if (idx === drawSelectedIdx) drawSelectionBox(ctx, obj);
+    });
+  }
+
+  function drawObject(ctx, obj) {
+    ctx.strokeStyle = obj.color || '#222'; ctx.lineWidth = obj.size || 2;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'source-over';
+
+    if (obj.type === 'pen') {
+      ctx.beginPath();
+      for (var i = 0; i < obj.points.length; i++) {
+        if (i === 0) ctx.moveTo(obj.points[i].x, obj.points[i].y);
+        else ctx.lineTo(obj.points[i].x, obj.points[i].y);
+      }
+      ctx.stroke();
+    } else if (obj.type === 'rect') {
+      if (obj.fill) { ctx.save(); ctx.globalAlpha = obj.fillOpacity != null ? obj.fillOpacity : 0.5; ctx.fillStyle = obj.color; ctx.fillRect(obj.x, obj.y, obj.w, obj.h); ctx.restore(); }
+      ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+    } else if (obj.type === 'circle') {
+      ctx.beginPath();
+      ctx.ellipse(obj.cx, obj.cy, Math.abs(obj.rx) || 1, Math.abs(obj.ry) || 1, 0, 0, Math.PI * 2);
+      if (obj.fill) { ctx.save(); ctx.globalAlpha = obj.fillOpacity != null ? obj.fillOpacity : 0.5; ctx.fillStyle = obj.color; ctx.fill(); ctx.restore(); }
+      ctx.stroke();
+    } else if (obj.type === 'line') {
+      ctx.beginPath(); ctx.moveTo(obj.x1, obj.y1); ctx.lineTo(obj.x2, obj.y2); ctx.stroke();
+    } else if (obj.type === 'arrow') {
+      ctx.beginPath(); ctx.moveTo(obj.x1, obj.y1); ctx.lineTo(obj.x2, obj.y2); ctx.stroke();
+      drawArrowHead(ctx, obj.x1, obj.y1, obj.x2, obj.y2, obj.size || 2);
+    } else if (obj.type === 'text') {
+      ctx.fillStyle = obj.color;
+      ctx.font = (obj.size || 16) + 'px ' + (obj.font || 'sans-serif');
+      ctx.textBaseline = 'top';
+      ctx.fillText(obj.text, obj.x, obj.y);
+    }
+  }
+
+  function drawArrowHead(ctx, x1, y1, x2, y2, strokeSize) {
+    var angle = Math.atan2(y2 - y1, x2 - x1);
+    var headLen = Math.max(12, strokeSize * 4);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+  }
+
+  // Measure text width using an offscreen canvas
+  var _measureCtx = document.createElement('canvas').getContext('2d');
+  function measureText(obj) {
+    _measureCtx.font = (obj.size || 16) + 'px ' + (obj.font || 'sans-serif');
+    return _measureCtx.measureText(obj.text).width;
+  }
+
+  function getBounds(obj) {
+    if (obj.type === 'rect') return { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+    if (obj.type === 'circle') return { x: obj.cx - Math.abs(obj.rx), y: obj.cy - Math.abs(obj.ry), w: Math.abs(obj.rx) * 2, h: Math.abs(obj.ry) * 2 };
+    if (obj.type === 'line' || obj.type === 'arrow') {
+      var x = Math.min(obj.x1, obj.x2), y = Math.min(obj.y1, obj.y2);
+      return { x: x, y: y, w: Math.abs(obj.x2 - obj.x1) || 10, h: Math.abs(obj.y2 - obj.y1) || 10 };
+    }
+    if (obj.type === 'text') {
+      var tw = measureText(obj);
+      var th = (obj.size || 16) * 1.2;
+      return { x: obj.x, y: obj.y, w: tw || 20, h: th };
+    }
+    if (obj.type === 'pen' && obj.points.length > 0) {
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      obj.points.forEach(function(p) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+      return { x: minX, y: minY, w: maxX - minX || 10, h: maxY - minY || 10 };
+    }
+    return { x: 0, y: 0, w: 0, h: 0 };
+  }
+
+  function drawSelectionBox(ctx, obj) {
+    var b = getBounds(obj);
+    var pad = 6;
+    ctx.save();
+    ctx.strokeStyle = '#4f46e5'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+    ctx.setLineDash([]);
+    // Draw corner handles
+    var hs = 6;
+    [[b.x - pad, b.y - pad], [b.x + b.w + pad, b.y - pad], [b.x - pad, b.y + b.h + pad], [b.x + b.w + pad, b.y + b.h + pad]].forEach(function(c) {
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(c[0] - hs/2, c[1] - hs/2, hs, hs);
+      ctx.strokeStyle = '#4f46e5'; ctx.lineWidth = 1.5; ctx.strokeRect(c[0] - hs/2, c[1] - hs/2, hs, hs);
+    });
+    ctx.restore();
+  }
+
+  function hitTestObjects(pos) {
+    for (var i = drawObjects.length - 1; i >= 0; i--) {
+      var b = getBounds(drawObjects[i]);
+      var pad = 8;
+      if (pos.x >= b.x - pad && pos.x <= b.x + b.w + pad && pos.y >= b.y - pad && pos.y <= b.y + b.h + pad) return i;
+    }
+    return -1;
+  }
+
+  function hitTestHandles(obj, pos) {
+    var b = getBounds(obj);
+    var pad = 6, hs = 10;
+    var handles = [
+      { name: 'tl', x: b.x - pad, y: b.y - pad },
+      { name: 'tr', x: b.x + b.w + pad, y: b.y - pad },
+      { name: 'bl', x: b.x - pad, y: b.y + b.h + pad },
+      { name: 'br', x: b.x + b.w + pad, y: b.y + b.h + pad }
+    ];
+    for (var i = 0; i < handles.length; i++) {
+      if (Math.abs(pos.x - handles[i].x) < hs && Math.abs(pos.y - handles[i].y) < hs) return handles[i].name;
+    }
+    return null;
+  }
+
+  function moveObject(obj, dx, dy) {
+    if (obj.type === 'rect') { obj.x += dx; obj.y += dy; }
+    else if (obj.type === 'circle') { obj.cx += dx; obj.cy += dy; }
+    else if (obj.type === 'line' || obj.type === 'arrow') { obj.x1 += dx; obj.y1 += dy; obj.x2 += dx; obj.y2 += dy; }
+    else if (obj.type === 'text') { obj.x += dx; obj.y += dy; }
+    else if (obj.type === 'pen') { obj.points.forEach(function(p) { p.x += dx; p.y += dy; }); }
+  }
+
+  function resizeObject(obj, handle, pos, orig) {
+    if (obj.type === 'rect') {
+      if (handle === 'br') { obj.w = Math.max(10, pos.x - obj.x); obj.h = Math.max(10, pos.y - obj.y); }
+      else if (handle === 'tl') { obj.w = Math.max(10, orig.x + orig.w - pos.x); obj.h = Math.max(10, orig.y + orig.h - pos.y); obj.x = pos.x; obj.y = pos.y; }
+      else if (handle === 'tr') { obj.w = Math.max(10, pos.x - obj.x); obj.h = Math.max(10, orig.y + orig.h - pos.y); obj.y = pos.y; }
+      else if (handle === 'bl') { obj.w = Math.max(10, orig.x + orig.w - pos.x); obj.h = Math.max(10, pos.y - obj.y); obj.x = pos.x; }
+    } else if (obj.type === 'circle') {
+      var b = getBounds(orig);
+      if (handle === 'br') { obj.rx = Math.max(5, (pos.x - b.x) / 2); obj.ry = Math.max(5, (pos.y - b.y) / 2); obj.cx = b.x + obj.rx; obj.cy = b.y + obj.ry; }
+      else { obj.rx = Math.max(5, Math.abs(pos.x - obj.cx)); obj.ry = Math.max(5, Math.abs(pos.y - obj.cy)); }
+    } else if (obj.type === 'line' || obj.type === 'arrow') {
+      if (handle === 'tl' || handle === 'bl') { obj.x1 = pos.x; obj.y1 = pos.y; }
+      else { obj.x2 = pos.x; obj.y2 = pos.y; }
+    } else if (obj.type === 'text') {
+      // Scale font size based on vertical drag distance from original bounds
+      var origB = getBounds(orig);
+      var newH = Math.max(10, pos.y - obj.y);
+      var scale = newH / (origB.h || 1);
+      obj.size = Math.max(8, Math.round((orig.size || 16) * scale));
+    }
+  }
+
+  // === Export ===
+  var showRaw = false;
+
+  function initExport() {
+    window.addEventListener('refreshExport', renderExport);
+    document.getElementById('toggleViewBtn').addEventListener('click', function() {
+      showRaw = !showRaw;
+      document.getElementById('exportPreview').style.display = showRaw ? 'none' : 'block';
+      document.getElementById('exportRaw').style.display = showRaw ? 'block' : 'none';
+      document.getElementById('toggleViewBtn').textContent = showRaw ? 'Preview' : 'Raw Markdown';
+      renderExport();
+    });
+    document.getElementById('downloadPdfBtn').addEventListener('click', downloadPdf);
+    document.getElementById('downloadMdBtn').addEventListener('click', downloadMd);
+    document.getElementById('copyMdBtn').addEventListener('click', copyMd);
+    renderExport();
+  }
+
+  function renderExport() {
+    var state = Store.get();
+    document.getElementById('exportContent').innerHTML = compileHtml(state);
+    document.getElementById('exportRawContent').textContent = compileMd(state);
+  }
+
+  function compileMd(state) {
+    var doc = '# Project Design Document\n\n';
+    if (state.notes.length > 0) {
+      doc += '## Notes\n\n';
+      state.notes.forEach(function(note) {
+        doc += '### ' + (note.title || 'Untitled Note') + '\n\n';
+        var content = note.content || '';
+        if (note.images) note.images.forEach(function(img) { content = content.replace(new RegExp('img::' + img.id, 'g'), img.dataUrl); });
+        doc += content + '\n\n---\n\n';
+      });
+    }
+    if (state.notes.length === 0) doc += '*No content yet. Add notes to generate your document.*\n';
+    return doc;
+  }
+
+  function compileHtml(state) {
+    var html = '<h1>Project Design Document</h1>';
+    if (state.notes.length > 0) {
+      html += '<h2>Notes</h2>';
+      state.notes.forEach(function(note) {
+        html += '<h3>' + escHtml(note.title || 'Untitled Note') + '</h3>';
+        var rendered = mdToHtml(note.content || '');
+        html += resolveImages(rendered, note.images) + '<hr>';
+      });
+    }
+    if (state.notes.length === 0) html += '<p style="color:var(--text-secondary);font-style:italic;">No content yet. Add notes to generate your document.</p>';
+    return html;
+  }
+
+  function downloadPdf() {
+    var el = document.getElementById('exportContent');
+    if (!el.innerHTML.trim()) { showToast('Nothing to export'); return; }
+    if (typeof html2pdf === 'undefined') { showToast('PDF library loading... try again'); return; }
+    showToast('Generating PDF...');
+    html2pdf().set({
+      margin: [15,15,15,15], filename: 'design-document.pdf',
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all','css','legacy'] }
+    }).from(el).save().then(function() { showToast('PDF downloaded'); }).catch(function() { showToast('PDF generation failed'); });
+  }
+
+  function downloadMd() {
+    var state = Store.get();
+    if (state.notes.length === 0) { showToast('Nothing to export'); return; }
+    var blob = new Blob([compileMd(state)], { type: 'text/markdown' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'design-document.md';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('Markdown downloaded');
+  }
+
+  function copyMd() {
+    navigator.clipboard.writeText(compileMd(Store.get())).then(function() { showToast('Copied to clipboard'); }).catch(function() { showToast('Copy failed'); });
+  }
+
+  // === App Init ===
+  var appInitialized = false;
+
+  function initApp() {
+    if (appInitialized) return;
+    appInitialized = true;
+
+    // Tab switching
+    var tabBtns = document.querySelectorAll('.tab-btn');
+    var tabPanels = document.querySelectorAll('.tab-panel');
+    tabBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        tabBtns.forEach(function(b) { b.classList.remove('active'); });
+        tabPanels.forEach(function(p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab === 'export') window.dispatchEvent(new Event('refreshExport'));
+      });
+    });
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', function() {
+      auth.signOut();
+    });
+
+    // Init modules
+    var state = Store.get();
+    initNotes(state);
+    initExport();
+  }
+
+  // Theme toggle (works on both screens)
+  (function() {
+    var themeToggle = document.getElementById('themeToggle');
+    var saved = localStorage.getItem('designToolTheme');
+    if (saved) { document.documentElement.setAttribute('data-theme', saved); themeToggle.textContent = saved === 'dark' ? '\u2600' : '\u263E'; }
+    themeToggle.addEventListener('click', function() {
+      var cur = document.documentElement.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('designToolTheme', next);
+      themeToggle.textContent = next === 'dark' ? '\u2600' : '\u263E';
+    });
+  })();
+
+  // Auth state listener — controls what's visible
+  auth.onAuthStateChanged(function(user) {
+    if (user) {
+      currentUserId = user.uid;
+      document.getElementById('authScreen').style.display = 'none';
+      document.getElementById('appShell').style.display = 'flex';
+      document.getElementById('userEmail').textContent = user.email;
+      // Load data from Firestore, then init app
+      Store.loadFromFirestore(function() {
+        initApp();
+        // Re-render in case data changed
+        if (appInitialized) {
+          renderNotesList(Store.get().notes);
+          if (!activeNoteId) showNotesEmpty();
+        }
+      });
+    } else {
+      currentUserId = null;
+      appInitialized = false;
+      document.getElementById('authScreen').style.display = 'flex';
+      document.getElementById('appShell').style.display = 'none';
+    }
+  });
+  </script>
+</body>
+</html>
