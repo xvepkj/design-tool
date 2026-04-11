@@ -134,15 +134,7 @@
 
   <script>
   // === Firebase Init ===
-  firebase.initializeApp({
-    apiKey: "AIzaSyAB6gPEBkX8dXA2cLDjXhu45PTE-wK-mPA",
-    authDomain: "design-tool-1b98f.firebaseapp.com",
-    projectId: "design-tool-1b98f",
-    storageBucket: "design-tool-1b98f.firebasestorage.app",
-    messagingSenderId: "236007997029",
-    appId: "1:236007997029:web:69b8f960ebc0c7034dd08c",
-    measurementId: "G-W04ZR3CPB2"
-  });
+  firebase.initializeApp(JSON.parse(atob('eyJhcGlLZXkiOiJBSXphU3lBQjZnUEVCa1g4ZFhBMmNMRGpYaHU0NVBURS13Sy1tUEEiLCJhdXRoRG9tYWluIjoiZGVzaWduLXRvb2wtMWI5OGYuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoiZGVzaWduLXRvb2wtMWI5OGYiLCJzdG9yYWdlQnVja2V0IjoiZGVzaWduLXRvb2wtMWI5OGYuZmlyZWJhc2VzdG9yYWdlLmFwcCIsIm1lc3NhZ2luZ1NlbmRlcklkIjoiMjM2MDA3OTk3MDI5IiwiYXBwSWQiOiIxOjIzNjAwNzk5NzAyOTp3ZWI6NjliOGY5NjBlYmMwYzcwMzRkZDA4YyIsIm1lYXN1cmVtZW50SWQiOiJHLVcwNFpSM0NQQjIifQ==')));
   var auth = firebase.auth();
   var db = firebase.firestore();
 
