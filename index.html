@@ -191,6 +191,20 @@
         this._state = raw ? JSON.parse(raw) : { notes: [] };
       } catch(e) { this._state = { notes: [] }; }
       if (!Array.isArray(this._state.notes)) this._state.notes = [];
+      // If primary data is empty but a backup exists, offer recovery
+      if (this._state.notes.length === 0) {
+        try {
+          var backup = localStorage.getItem(STORAGE_KEY + '_backup');
+          if (backup) {
+            var backupState = JSON.parse(backup);
+            if (backupState.notes && backupState.notes.length > 0) {
+              this._state = backupState;
+              console.info('Recovered ' + backupState.notes.length + ' note(s) from backup.');
+              showToast('Recovered notes from backup.');
+            }
+          }
+        } catch(e) { /* backup parse failed, nothing to recover */ }
+      }
       return this._state;
     },
     save: function(s) {
@@ -198,7 +212,23 @@
       clearTimeout(this._timeout);
       var self = this;
       this._timeout = setTimeout(function() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(self._state));
+        // Keep a rolling backup before overwriting
+        try {
+          var prev = localStorage.getItem(STORAGE_KEY);
+          if (prev) localStorage.setItem(STORAGE_KEY + '_backup', prev);
+        } catch(e) { /* backup is best-effort */ }
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(self._state));
+        } catch(e) {
+          // localStorage quota exceeded — strip base64 image data to fit
+          console.warn('localStorage save failed, stripping image data:', e.message);
+          var slim = JSON.parse(JSON.stringify(self._state));
+          slim.notes.forEach(function(note) {
+            if (note.images) note.images.forEach(function(img) { img.dataUrl = ''; });
+          });
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(slim)); } catch(e2) { console.error('localStorage save failed even after stripping images:', e2.message); }
+          showToast('Warning: images too large for local storage — data saved without image previews. Sign in to preserve images via cloud sync.');
+        }
         self._listeners.forEach(function(cb) { cb(self._state); });
         // Sync to Firestore
         if (currentUserId) {
@@ -215,24 +245,94 @@
       this._syncTimeout = setTimeout(function() {
         if (!currentUserId) return;
         var data = JSON.parse(JSON.stringify(self._state));
-        // Firestore has 1MB doc limit; store notes as subcollection if too large
-        db.collection('users').doc(currentUserId).set({ notes: data.notes, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-          .catch(function(err) { console.warn('Firestore sync failed:', err.message); });
+        // Separate large image data from note metadata to stay under Firestore 1MB doc limit
+        var notesWithoutImageData = data.notes.map(function(note) {
+          var slim = Object.assign({}, note);
+          if (slim.images && slim.images.length) {
+            slim.images = slim.images.map(function(img) {
+              return { id: img.id, name: img.name, dataUrl: '' };
+            });
+          }
+          return slim;
+        });
+        var userDoc = db.collection('users').doc(currentUserId);
+        userDoc.set({ notes: notesWithoutImageData, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+          .catch(function(err) { console.warn('Firestore sync (notes) failed:', err.message); });
+        // Store images in a subcollection, one doc per note (only notes with images)
+        data.notes.forEach(function(note) {
+          if (note.images && note.images.length) {
+            // Split images into chunks < 900KB to stay under Firestore 1MB doc limit
+            var chunks = []; var currentChunk = []; var currentSize = 0;
+            note.images.forEach(function(img) {
+              var imgSize = (img.dataUrl || '').length;
+              if (currentSize + imgSize > 900000 && currentChunk.length > 0) {
+                chunks.push(currentChunk); currentChunk = []; currentSize = 0;
+              }
+              currentChunk.push(img); currentSize += imgSize;
+            });
+            if (currentChunk.length) chunks.push(currentChunk);
+            chunks.forEach(function(chunk, idx) {
+              userDoc.collection('noteImages').doc(note.id + '_' + idx).set({ noteId: note.id, chunkIndex: idx, totalChunks: chunks.length, images: chunk })
+                .catch(function(err) { console.warn('Firestore image sync failed for note ' + note.id + ':', err.message); });
+            });
+          }
+        });
       }, 1000);
     },
     loadFromFirestore: function(cb) {
       if (!currentUserId) { cb(); return; }
-      db.collection('users').doc(currentUserId).get().then(function(doc) {
+      var userDoc = db.collection('users').doc(currentUserId);
+      userDoc.get().then(function(doc) {
         if (doc.exists && doc.data().notes) {
-          var data = doc.data();
-          Store._state = { notes: data.notes };
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(Store._state));
+          var cloudNotes = doc.data().notes;
+          // Load images from subcollection
+          userDoc.collection('noteImages').get().then(function(snapshot) {
+            var imagesByNote = {};
+            snapshot.forEach(function(imgDoc) {
+              var d = imgDoc.data();
+              if (!imagesByNote[d.noteId]) imagesByNote[d.noteId] = [];
+              imagesByNote[d.noteId].push(d);
+            });
+            // Merge images back into notes
+            cloudNotes.forEach(function(note) {
+              var chunks = imagesByNote[note.id];
+              if (chunks && chunks.length) {
+                chunks.sort(function(a, b) { return a.chunkIndex - b.chunkIndex; });
+                var allImages = [];
+                chunks.forEach(function(chunk) {
+                  allImages = allImages.concat(chunk.images);
+                });
+                // Only use subcollection images if they have actual data
+                var hasData = allImages.some(function(img) { return img.dataUrl && img.dataUrl.length > 0; });
+                if (hasData) note.images = allImages;
+              }
+              // Merge with local images that may not have synced yet
+              var localState = Store._state || Store.load();
+              var localNote = localState.notes && localState.notes.find ? localState.notes.find(function(n) { return n.id === note.id; }) : null;
+              if (localNote && localNote.images && localNote.images.length) {
+                if (!note.images) note.images = [];
+                var cloudIds = {};
+                note.images.forEach(function(img) { cloudIds[img.id] = true; });
+                localNote.images.forEach(function(img) {
+                  if (!cloudIds[img.id] && img.dataUrl) note.images.push(img);
+                });
+              }
+            });
+            Store._state = { notes: cloudNotes };
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(Store._state)); } catch(e) { console.warn('localStorage save failed after Firestore load:', e.message); }
+            cb();
+          }).catch(function(err) {
+            console.warn('Firestore image load failed:', err.message);
+            Store._state = { notes: cloudNotes };
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(Store._state)); } catch(e) {}
+            cb();
+          });
         } else {
           // First time: push local data to cloud
           Store.load();
           Store._syncToFirestore();
+          cb();
         }
-        cb();
       }).catch(function(err) {
         console.warn('Firestore load failed:', err.message);
         Store.load();
