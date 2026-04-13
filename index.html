@@ -90,6 +90,8 @@
       <aside class="panel-sidebar">
         <div class="sidebar-header">
           <button class="btn btn-primary btn-full" id="newNoteBtn">+ New Note</button>
+          <input type="text" class="sidebar-search" id="noteSearch" placeholder="Search notes...">
+          <button class="btn btn-secondary btn-full btn-sm" id="toggleArchiveBtn" style="margin-top:4px;font-size:11px;">Show Archived</button>
         </div>
         <div class="sidebar-list" id="notesList"></div>
       </aside>
@@ -431,41 +433,95 @@
   var activeNoteId = null;
   var noteSaveTimeout = null;
 
+  var showArchived = false;
+
   function initNotes(state) {
     renderNotesList(state.notes);
+    // Auto-select the first active (non-archived) note
+    var active = state.notes.filter(function(n) { return !n.archived; });
+    if (active.length > 0) {
+      selectNote(active[0].id);
+    } else {
+      showNotesEmpty();
+    }
+
     document.getElementById('newNoteBtn').addEventListener('click', function() {
       var note = { id: uid(), title: 'Untitled Note', content: '', images: [], createdAt: now(), updatedAt: now() };
       var s = Store.get();
       s.notes.unshift(note);
       Store.save(s);
+      if (showArchived) { showArchived = false; document.getElementById('toggleArchiveBtn').textContent = 'Show Archived'; }
       selectNote(note.id);
       renderNotesList(s.notes);
+    });
+
+    // Search
+    document.getElementById('noteSearch').addEventListener('input', function() {
+      renderNotesList(Store.get().notes);
+    });
+
+    // Archive toggle
+    document.getElementById('toggleArchiveBtn').addEventListener('click', function() {
+      showArchived = !showArchived;
+      this.textContent = showArchived ? 'Show Active' : 'Show Archived';
+      activeNoteId = null;
+      showNotesEmpty();
+      renderNotesList(Store.get().notes);
+    });
+  }
+
+  function getFilteredNotes(notes) {
+    var query = (document.getElementById('noteSearch').value || '').toLowerCase().trim();
+    return notes.filter(function(n) {
+      var matchesArchive = showArchived ? !!n.archived : !n.archived;
+      if (!matchesArchive) return false;
+      if (!query) return true;
+      return (n.title || '').toLowerCase().indexOf(query) !== -1 ||
+             (n.content || '').toLowerCase().indexOf(query) !== -1;
     });
   }
 
   function renderNotesList(notes) {
     var list = document.getElementById('notesList');
-    if (notes.length === 0) { list.innerHTML = ''; return; }
-    list.innerHTML = notes.map(function(n) {
+    var filtered = getFilteredNotes(notes);
+    if (filtered.length === 0) { list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary);font-size:13px;">' + (showArchived ? 'No archived notes' : 'No notes found') + '</div>'; return; }
+    list.innerHTML = filtered.map(function(n) {
       return '<div class="sidebar-item ' + (n.id === activeNoteId ? 'active' : '') + '" data-id="' + n.id + '">' +
         '<div class="sidebar-item-info">' +
         '<div class="sidebar-item-title">' + escHtml(n.title || 'Untitled Note') + '</div>' +
         '<div class="sidebar-item-preview">' + escHtml(truncate(n.content)) + '</div>' +
         '</div>' +
+        '<div class="sidebar-item-actions">' +
+        '<button class="archive-btn" data-archive="' + n.id + '" title="' + (n.archived ? 'Unarchive' : 'Archive') + '">' + (n.archived ? '&#8634;' : '&#128230;') + '</button>' +
         '<button class="delete-btn" data-delete="' + n.id + '" title="Delete note">&times;</button>' +
+        '</div>' +
         '</div>';
     }).join('');
 
     list.querySelectorAll('.sidebar-item').forEach(function(el) {
       el.addEventListener('click', function(e) {
-        if (e.target.closest('.delete-btn')) return;
+        if (e.target.closest('.delete-btn') || e.target.closest('.archive-btn')) return;
         selectNote(el.dataset.id);
+      });
+    });
+    list.querySelectorAll('.archive-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var s = Store.get();
+        var n = s.notes.find(function(n) { return n.id === btn.dataset.archive; });
+        if (n) {
+          n.archived = !n.archived;
+          Store.save(s);
+          if (activeNoteId === n.id) { activeNoteId = null; showNotesEmpty(); }
+          renderNotesList(s.notes);
+          showToast(n.archived ? 'Note archived' : 'Note restored');
+        }
       });
     });
     list.querySelectorAll('.delete-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
-        if (!confirm('Delete this note?')) return;
+        if (!confirm('Delete this note permanently?')) return;
         var s = Store.get();
         s.notes = s.notes.filter(function(n) { return n.id !== btn.dataset.delete; });
         Store.save(s);
