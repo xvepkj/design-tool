@@ -460,6 +460,14 @@ label {
 .note-preview ul, .note-preview ol { padding-left: 24px; margin: 8px 0; }
 .note-preview hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
+/* Focus mode — hide preview pane */
+.note-editor.focus-mode .note-editor-pane:last-child {
+  display: none;
+}
+.note-editor.focus-mode .note-editor-pane:first-child {
+  border-right: none;
+}
+
 /* Drop zone indicator */
 .drop-active {
   outline: 2px dashed var(--accent);

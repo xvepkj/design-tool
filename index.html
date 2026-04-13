@@ -546,7 +546,7 @@
       '<input type="text" class="note-title-input" id="noteTitle" value="' + escHtml(note.title) + '" placeholder="Note title...">' +
       '<div class="note-editor">' +
         '<div class="note-editor-pane">' +
-          '<div class="pane-header">Markdown <button class="btn btn-secondary btn-sm draw-open-btn" id="openDrawBtn" style="margin-left:auto;font-size:11px;padding:2px 8px;">Draw</button></div>' +
+          '<div class="pane-header">Markdown <button class="btn btn-secondary btn-sm" id="focusModeBtn" style="margin-left:auto;font-size:11px;padding:2px 8px;">Focus</button> <button class="btn btn-secondary btn-sm draw-open-btn" id="openDrawBtn" style="font-size:11px;padding:2px 8px;">Draw</button></div>' +
           '<textarea class="note-textarea" id="noteContent" placeholder="Write your notes here...\n\nPaste images with Ctrl+V or drag & drop them.">' + escHtml(note.content) + '</textarea>' +
         '</div>' +
         '<div class="note-editor-pane">' +
@@ -586,6 +586,19 @@
           return;
         }
       }
+    });
+
+    // Focus mode toggle — hides preview for compact writing
+    var focusBtn = document.getElementById('focusModeBtn');
+    var editor = contentArea.closest('.note-editor');
+    if (localStorage.getItem('focusMode') === '1') {
+      editor.classList.add('focus-mode');
+      focusBtn.textContent = 'Split';
+    }
+    focusBtn.addEventListener('click', function() {
+      var on = editor.classList.toggle('focus-mode');
+      focusBtn.textContent = on ? 'Split' : 'Focus';
+      localStorage.setItem('focusMode', on ? '1' : '0');
     });
 
     // Open draw tool
