@@ -12,6 +12,29 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
+  <!-- Shared Document Viewer (when ?view=<id> is in URL) -->
+  <div id="sharedViewer" style="display:none;flex-direction:column;height:100vh;">
+    <header class="app-header">
+      <div class="app-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        Design Tool
+      </div>
+      <div class="header-actions">
+        <span class="shared-badge">Shared Snapshot</span>
+        <button class="btn btn-primary btn-sm" id="sharedDownloadPdf">Download PDF</button>
+        <button class="theme-toggle" id="sharedThemeToggle" title="Toggle dark mode">&#9790;</button>
+      </div>
+    </header>
+    <div class="export-preview" style="flex:1;">
+      <div class="export-preview-inner" id="sharedContent">
+        <p style="color:var(--text-secondary);text-align:center;padding:40px;">Loading shared document...</p>
+      </div>
+    </div>
+    <div class="toast" id="sharedToast"></div>
+  </div>
+
   <!-- Auth Screen -->
   <div class="auth-screen" id="authScreen">
     <div class="auth-card">
@@ -86,6 +109,7 @@
           <button class="btn btn-primary" id="downloadPdfBtn">Download PDF</button>
           <button class="btn btn-secondary" id="downloadMdBtn">Download Markdown</button>
           <button class="btn btn-secondary" id="copyMdBtn">Copy Markdown</button>
+          <button class="btn btn-secondary" id="shareLinkBtn">Share as Link</button>
           <div class="spacer"></div>
           <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Raw Markdown</button>
         </div>
@@ -129,6 +153,21 @@
     </div>
   </div>
 
+  <!-- Share Link Modal -->
+  <div class="share-overlay" id="shareModal" style="display:none;">
+    <div class="share-modal">
+      <h3 style="margin-bottom:4px;">Snapshot Link Created</h3>
+      <p style="color:var(--text-secondary);font-size:14px;margin:8px 0 16px;">Anyone with this link can view and download this document as PDF.<br>This is a snapshot — future changes won't affect it.</p>
+      <div class="share-link-row">
+        <input type="text" id="shareLinkInput" readonly>
+        <button class="btn btn-primary" id="copyShareLink">Copy</button>
+      </div>
+      <div style="text-align:right;margin-top:16px;">
+        <button class="btn btn-secondary" id="closeShareModal">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
   </div><!-- end appShell -->
 
@@ -137,6 +176,7 @@
   firebase.initializeApp(JSON.parse(atob('eyJhcGlLZXkiOiJBSXphU3lBQjZnUEVCa1g4ZFhBMmNMRGpYaHU0NVBURS13Sy1tUEEiLCJhdXRoRG9tYWluIjoiZGVzaWduLXRvb2wtMWI5OGYuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoiZGVzaWduLXRvb2wtMWI5OGYiLCJzdG9yYWdlQnVja2V0IjoiZGVzaWduLXRvb2wtMWI5OGYuZmlyZWJhc2VzdG9yYWdlLmFwcCIsIm1lc3NhZ2luZ1NlbmRlcklkIjoiMjM2MDA3OTk3MDI5IiwiYXBwSWQiOiIxOjIzNjAwNzk5NzAyOTp3ZWI6NjliOGY5NjBlYmMwYzcwMzRkZDA4YyIsIm1lYXN1cmVtZW50SWQiOiJHLVcwNFpSM0NQQjIifQ==')));
   var auth = firebase.auth();
   var db = firebase.firestore();
+  var isViewerMode = false;
 
   // === Auth ===
   var isSignUp = false;
@@ -454,7 +494,7 @@
           '<textarea class="note-textarea" id="noteContent" placeholder="Write your notes here...\n\nPaste images with Ctrl+V or drag & drop them.">' + escHtml(note.content) + '</textarea>' +
         '</div>' +
         '<div class="note-editor-pane">' +
-          '<div class="pane-header">Preview</div>' +
+          '<div class="pane-header">Preview <button class="btn btn-secondary btn-sm" id="popoutPreviewBtn" style="margin-left:auto;font-size:11px;padding:2px 8px;">Pop-out</button></div>' +
           '<div class="note-preview" id="notePreview"></div>' +
         '</div>' +
       '</div>';
@@ -510,6 +550,63 @@
         if (files[i].type.indexOf('image/') === 0) handleImageFile(files[i], note, contentArea, preview);
       }
     });
+
+    // Pop-out preview — opens live preview in a separate window for meetings
+    var popoutBtn = document.getElementById('popoutPreviewBtn');
+    var popoutWin = null;
+
+    function updatePopout() {
+      if (!popoutWin || popoutWin.closed) { popoutWin = null; return; }
+      var body = popoutWin.document.body;
+      if (!body) return;
+      var container = popoutWin.document.getElementById('popout-content');
+      if (container) {
+        container.innerHTML = resolveImages(mdToHtml(note.content), note.images);
+      }
+    }
+
+    popoutBtn.addEventListener('click', function() {
+      if (popoutWin && !popoutWin.closed) { popoutWin.focus(); return; }
+      popoutWin = window.open('', 'preview', 'width=900,height=700');
+      var doc = popoutWin.document;
+      var theme = document.documentElement.getAttribute('data-theme') || '';
+      // Copy all stylesheets from parent into popout
+      var styles = '';
+      Array.from(document.styleSheets).forEach(function(sheet) {
+        try {
+          var rules = sheet.cssRules || sheet.rules;
+          if (rules) {
+            for (var i = 0; i < rules.length; i++) styles += rules[i].cssText + '\n';
+          }
+        } catch(e) {}
+      });
+      doc.open();
+      doc.write('<!DOCTYPE html><html' + (theme ? ' data-theme="' + theme + '"' : '') + '>' +
+        '<head><title>' + escHtml(note.title || 'Preview') + '</title>' +
+        '<style>' + styles + '</style>' +
+        '<style>' +
+          'body { margin: 0; padding: 40px 56px; min-height: 100vh; }' +
+          '.note-preview { max-width: 800px; margin: 0 auto; font-size: 15px; line-height: 1.7; }' +
+          '.note-preview h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 8px; }' +
+          '.note-preview h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 6px; }' +
+          '.note-preview p { margin: 12px 0; }' +
+          '.note-preview pre { padding: 16px; border-radius: 8px; }' +
+          '.note-preview blockquote { margin: 16px 0; padding: 12px 16px; border-radius: 0 8px 8px 0; background: var(--bg-secondary); }' +
+          '.note-preview img { max-width: 100%; border-radius: 8px; margin: 12px 0; box-shadow: var(--shadow-md); }' +
+          '.note-preview ul, .note-preview ol { margin: 12px 0; }' +
+          '.note-preview li { margin: 4px 0; }' +
+        '</style>' +
+        '</head><body>' +
+        '<div id="popout-content" class="note-preview"></div>' +
+        '</body></html>');
+      doc.close();
+      updatePopout();
+      showToast('Preview opened — share this window in your meeting');
+    });
+
+    // Hook into content changes to keep popout in sync
+    var origInput = contentArea.oninput;
+    contentArea.addEventListener('input', function() { updatePopout(); });
   }
 
   function handleImageFile(file, note, textarea, preview) {
@@ -996,6 +1093,15 @@
     document.getElementById('downloadPdfBtn').addEventListener('click', downloadPdf);
     document.getElementById('downloadMdBtn').addEventListener('click', downloadMd);
     document.getElementById('copyMdBtn').addEventListener('click', copyMd);
+    document.getElementById('shareLinkBtn').addEventListener('click', shareSnapshot);
+    document.getElementById('copyShareLink').addEventListener('click', function() {
+      var input = document.getElementById('shareLinkInput');
+      input.select();
+      navigator.clipboard.writeText(input.value).then(function() { showToast('Link copied!'); });
+    });
+    document.getElementById('closeShareModal').addEventListener('click', function() {
+      document.getElementById('shareModal').style.display = 'none';
+    });
     renderExport();
   }
 
@@ -1064,6 +1170,60 @@
     navigator.clipboard.writeText(compileMd(Store.get())).then(function() { showToast('Copied to clipboard'); }).catch(function() { showToast('Copy failed'); });
   }
 
+  // === Share Snapshot ===
+  // NOTE: For shared links to work, update your Firestore rules to allow public reads on sharedDocs:
+  //   match /sharedDocs/{docId} { allow read: if true; allow write: if request.auth != null; }
+  //   match /sharedDocs/{docId}/chunks/{chunkId} { allow read: if true; allow write: if request.auth != null; }
+
+  function shareSnapshot() {
+    var state = Store.get();
+    if (state.notes.length === 0) { showToast('Nothing to share'); return; }
+
+    var html = compileHtml(state);
+    var shareId = uid();
+    var docRef = db.collection('sharedDocs').doc(shareId);
+
+    showToast('Creating share link...');
+
+    if (html.length < 900000) {
+      // Fits in a single Firestore doc
+      docRef.set({
+        html: html,
+        chunks: 0,
+        title: 'Project Design Document',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        createdBy: currentUserId
+      }).then(function() { showShareModal(shareId); })
+        .catch(function(err) { console.error('Share failed:', err); showToast('Share failed — check Firestore rules'); });
+    } else {
+      // Split into chunks for large docs with images
+      var chunkSize = 800000;
+      var parts = [];
+      for (var i = 0; i < html.length; i += chunkSize) {
+        parts.push(html.slice(i, i + chunkSize));
+      }
+      var promises = [
+        docRef.set({
+          chunks: parts.length,
+          title: 'Project Design Document',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdBy: currentUserId
+        })
+      ];
+      parts.forEach(function(part, idx) {
+        promises.push(docRef.collection('chunks').doc(String(idx)).set({ content: part, index: idx }));
+      });
+      Promise.all(promises).then(function() { showShareModal(shareId); })
+        .catch(function(err) { console.error('Share failed:', err); showToast('Share failed — check Firestore rules'); });
+    }
+  }
+
+  function showShareModal(shareId) {
+    var url = window.location.origin + window.location.pathname + '?view=' + shareId;
+    document.getElementById('shareLinkInput').value = url;
+    document.getElementById('shareModal').style.display = 'flex';
+  }
+
   // === App Init ===
   var appInitialized = false;
 
@@ -1109,8 +1269,71 @@
     });
   })();
 
+  // === Shared Viewer Mode ===
+  (function() {
+    var params = new URLSearchParams(window.location.search);
+    var viewId = params.get('view');
+    if (!viewId) return;
+
+    isViewerMode = true;
+    document.getElementById('authScreen').style.display = 'none';
+    document.getElementById('sharedViewer').style.display = 'flex';
+
+    // Load shared doc from Firestore (no auth required)
+    var docRef = db.collection('sharedDocs').doc(viewId);
+    docRef.get().then(function(doc) {
+      if (!doc.exists) {
+        document.getElementById('sharedContent').innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px;">This shared document was not found or has been removed.</p>';
+        return;
+      }
+      var data = doc.data();
+      if (data.title) document.title = data.title + ' — Design Tool';
+
+      if (data.chunks && data.chunks > 0) {
+        // Load chunked content
+        docRef.collection('chunks').orderBy('index').get().then(function(snapshot) {
+          var html = '';
+          snapshot.forEach(function(chunk) { html += chunk.data().content; });
+          document.getElementById('sharedContent').innerHTML = html;
+        });
+      } else {
+        document.getElementById('sharedContent').innerHTML = data.html;
+      }
+    }).catch(function(err) {
+      console.error('Shared doc load error:', err);
+      document.getElementById('sharedContent').innerHTML = '<p style="color:var(--danger);text-align:center;padding:40px;">Failed to load shared document. Firestore rules may need to allow public reads on the sharedDocs collection.</p>';
+    });
+
+    // PDF download for shared view
+    document.getElementById('sharedDownloadPdf').addEventListener('click', function() {
+      var el = document.getElementById('sharedContent');
+      if (!el.innerHTML.trim()) return;
+      if (typeof html2pdf === 'undefined') { alert('PDF library still loading, try again.'); return; }
+      html2pdf().set({
+        margin: [15,15,15,15], filename: 'shared-document.pdf',
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all','css','legacy'] }
+      }).from(el).save();
+    });
+
+    // Theme toggle for viewer
+    var sharedTheme = document.getElementById('sharedThemeToggle');
+    var savedTheme = localStorage.getItem('designToolTheme');
+    if (savedTheme) { document.documentElement.setAttribute('data-theme', savedTheme); sharedTheme.textContent = savedTheme === 'dark' ? '\u2600' : '\u263E'; }
+    sharedTheme.addEventListener('click', function() {
+      var cur = document.documentElement.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('designToolTheme', next);
+      sharedTheme.textContent = next === 'dark' ? '\u2600' : '\u263E';
+    });
+  })();
+
   // Auth state listener — controls what's visible
   auth.onAuthStateChanged(function(user) {
+    if (isViewerMode) return;
     if (user) {
       currentUserId = user.uid;
       document.getElementById('authScreen').style.display = 'none';
