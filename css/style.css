@@ -441,11 +441,14 @@ label {
 .note-preview h1, .note-preview h2, .note-preview h3 { margin: 16px 0 8px; }
 .note-preview p { margin: 8px 0; }
 .note-preview pre {
-  background: var(--bg-secondary);
+  background: var(--bg-secondary) !important;
   padding: 12px;
   border-radius: var(--radius-sm);
   overflow-x: auto;
   font-size: 13px;
+}
+.note-preview pre code {
+  background: transparent !important;
 }
 .note-preview code {
   font-family: var(--font-mono);
@@ -624,7 +627,8 @@ label {
 .export-preview-inner h3 { font-size: 18px; margin-top: 20px; margin-bottom: 8px; }
 .export-preview-inner p { margin: 8px 0; }
 .export-preview-inner img { max-width: 100%; border-radius: var(--radius); margin: 12px 0; }
-.export-preview-inner pre { background: var(--bg-secondary); padding: 12px; border-radius: var(--radius-sm); overflow-x: auto; }
+.export-preview-inner pre { background: var(--bg-secondary) !important; padding: 12px; border-radius: var(--radius-sm); overflow-x: auto; }
+.export-preview-inner pre code { background: transparent !important; }
 .export-preview-inner code { font-family: var(--font-mono); font-size: 13px; }
 .export-preview-inner ul, .export-preview-inner ol { padding-left: 24px; }
 .export-preview-inner hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }

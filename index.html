@@ -6,6 +6,8 @@
   <title>Design Tool</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/print.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljsTheme">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -399,7 +401,9 @@
 
   function mdToHtml(md) {
     var html = escHtml(md);
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>');
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+      return '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + code + '</code></pre>';
+    });
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
     html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
@@ -631,6 +635,7 @@
       var container = popoutWin.document.getElementById('popout-content');
       if (container) {
         container.innerHTML = resolveImages(mdToHtml(note.content), note.images);
+        highlightCode(container);
       }
     }
 
@@ -695,9 +700,15 @@
     reader.readAsDataURL(file);
   }
 
+  function highlightCode(container) {
+    if (typeof hljs === 'undefined') return;
+    container.querySelectorAll('pre code').forEach(function(block) { hljs.highlightElement(block); });
+  }
+
   function updateNotePreview(note, el) {
     var html = mdToHtml(note.content);
     el.innerHTML = resolveImages(html, note.images);
+    highlightCode(el);
   }
 
   function noteDebounce() {
@@ -1174,48 +1185,49 @@
     renderExport();
   }
 
-  function renderExport() {
-    var state = Store.get();
-    document.getElementById('exportContent').innerHTML = compileHtml(state);
-    document.getElementById('exportRawContent').textContent = compileMd(state);
+  function getActiveNote() {
+    if (!activeNoteId) return null;
+    var s = Store.get();
+    return s.notes.find(function(n) { return n.id === activeNoteId; }) || null;
   }
 
-  function compileMd(state) {
-    var doc = '# Project Design Document\n\n';
-    if (state.notes.length > 0) {
-      doc += '## Notes\n\n';
-      state.notes.forEach(function(note) {
-        doc += '### ' + (note.title || 'Untitled Note') + '\n\n';
-        var content = note.content || '';
-        if (note.images) note.images.forEach(function(img) { content = content.replace(new RegExp('img::' + img.id, 'g'), img.dataUrl); });
-        doc += content + '\n\n---\n\n';
-      });
-    }
-    if (state.notes.length === 0) doc += '*No content yet. Add notes to generate your document.*\n';
+  function renderExport() {
+    var note = getActiveNote();
+    var el = document.getElementById('exportContent');
+    el.innerHTML = compileHtml(note);
+    highlightCode(el);
+    document.getElementById('exportRawContent').textContent = compileMd(note);
+  }
+
+  function compileMd(note) {
+    if (!note) return '*No note selected. Select a note to export.*\n';
+    var title = note.title || 'Untitled Note';
+    var doc = '# ' + title + '\n\n';
+    var content = note.content || '';
+    if (note.images) note.images.forEach(function(img) { content = content.replace(new RegExp('img::' + img.id, 'g'), img.dataUrl); });
+    doc += content + '\n';
     return doc;
   }
 
-  function compileHtml(state) {
-    var html = '<h1>Project Design Document</h1>';
-    if (state.notes.length > 0) {
-      html += '<h2>Notes</h2>';
-      state.notes.forEach(function(note) {
-        html += '<h3>' + escHtml(note.title || 'Untitled Note') + '</h3>';
-        var rendered = mdToHtml(note.content || '');
-        html += resolveImages(rendered, note.images) + '<hr>';
-      });
-    }
-    if (state.notes.length === 0) html += '<p style="color:var(--text-secondary);font-style:italic;">No content yet. Add notes to generate your document.</p>';
+  function compileHtml(note) {
+    if (!note) return '<p style="color:var(--text-secondary);font-style:italic;">No note selected. Select a note to export.</p>';
+    var title = note.title || 'Untitled Note';
+    var html = '<h1>' + escHtml(title) + '</h1>';
+    var rendered = mdToHtml(note.content || '');
+    html += resolveImages(rendered, note.images);
     return html;
   }
 
   function downloadPdf() {
+    var note = getActiveNote();
+    if (!note) { showToast('No note selected'); return; }
     var el = document.getElementById('exportContent');
     if (!el.innerHTML.trim()) { showToast('Nothing to export'); return; }
     if (typeof html2pdf === 'undefined') { showToast('PDF library loading... try again'); return; }
+    var pdfName = (note.title || 'untitled-note').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.pdf';
     showToast('Generating PDF...');
     html2pdf().set({
-      margin: [15,15,15,15], filename: 'design-document.pdf',
+      margin: [15,15,15,15], filename: pdfName,
       image: { type: 'jpeg', quality: 0.95 },
       html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
@@ -1224,19 +1236,21 @@
   }
 
   function downloadMd() {
-    var state = Store.get();
-    if (state.notes.length === 0) { showToast('Nothing to export'); return; }
-    var blob = new Blob([compileMd(state)], { type: 'text/markdown' });
+    var note = getActiveNote();
+    if (!note) { showToast('No note selected'); return; }
+    var blob = new Blob([compileMd(note)], { type: 'text/markdown' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'design-document.md';
+    a.download = (note.title || 'untitled-note').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
     a.click();
     URL.revokeObjectURL(a.href);
     showToast('Markdown downloaded');
   }
 
   function copyMd() {
-    navigator.clipboard.writeText(compileMd(Store.get())).then(function() { showToast('Copied to clipboard'); }).catch(function() { showToast('Copy failed'); });
+    var note = getActiveNote();
+    if (!note) { showToast('No note selected'); return; }
+    navigator.clipboard.writeText(compileMd(note)).then(function() { showToast('Copied to clipboard'); }).catch(function() { showToast('Copy failed'); });
   }
 
   // === Share Snapshot ===
@@ -1245,10 +1259,11 @@
   //   match /sharedDocs/{docId}/chunks/{chunkId} { allow read: if true; allow write: if request.auth != null; }
 
   function shareSnapshot() {
-    var state = Store.get();
-    if (state.notes.length === 0) { showToast('Nothing to share'); return; }
+    var note = getActiveNote();
+    if (!note) { showToast('No note selected'); return; }
 
-    var html = compileHtml(state);
+    var html = compileHtml(note);
+    var noteTitle = note.title || 'Untitled Note';
     var shareId = uid();
     var docRef = db.collection('sharedDocs').doc(shareId);
 
@@ -1259,7 +1274,7 @@
       docRef.set({
         html: html,
         chunks: 0,
-        title: 'Project Design Document',
+        title: noteTitle,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         createdBy: currentUserId
       }).then(function() { showShareModal(shareId); })
@@ -1274,7 +1289,7 @@
       var promises = [
         docRef.set({
           chunks: parts.length,
-          title: 'Project Design Document',
+          title: noteTitle,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdBy: currentUserId
         })
@@ -1328,13 +1343,20 @@
   (function() {
     var themeToggle = document.getElementById('themeToggle');
     var saved = localStorage.getItem('designToolTheme');
-    if (saved) { document.documentElement.setAttribute('data-theme', saved); themeToggle.textContent = saved === 'dark' ? '\u2600' : '\u263E'; }
+    if (saved) {
+      document.documentElement.setAttribute('data-theme', saved);
+      themeToggle.textContent = saved === 'dark' ? '\u2600' : '\u263E';
+      var hljsLink = document.getElementById('hljsTheme');
+      if (hljsLink) hljsLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/' + (saved === 'dark' ? 'github-dark' : 'github') + '.min.css';
+    }
     themeToggle.addEventListener('click', function() {
       var cur = document.documentElement.getAttribute('data-theme');
       var next = cur === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('designToolTheme', next);
       themeToggle.textContent = next === 'dark' ? '\u2600' : '\u263E';
+      var hljsLink = document.getElementById('hljsTheme');
+      if (hljsLink) hljsLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/' + (next === 'dark' ? 'github-dark' : 'github') + '.min.css';
     });
   })();
 
