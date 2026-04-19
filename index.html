@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="css/print.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljsTheme">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -1218,21 +1217,61 @@
     return html;
   }
 
+  function buildPrintDocument(title, bodyHtml) {
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escHtml(title) + '</title>'
+      + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">'
+      + '<style>'
+      + '@page { size: A4; margin: 15mm; }'
+      + 'html, body { background:#fff; color:#212529; margin:0; padding:0; }'
+      + 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; font-size:13px; line-height:1.6; }'
+      + '.pdf-body { max-width:100%; padding:0; }'
+      + 'h1 { font-size:26px; margin:0 0 12px; }'
+      + 'h2 { font-size:20px; margin:24px 0 10px; color:#4f46e5; border-bottom:2px solid #dee2e6; padding-bottom:4px; page-break-after:avoid; }'
+      + 'h3 { font-size:16px; margin:18px 0 8px; page-break-after:avoid; }'
+      + 'p { margin:8px 0; }'
+      + 'img { max-width:100%; height:auto; border-radius:4px; margin:12px 0; page-break-inside:avoid; }'
+      + 'pre { background:#f8f9fa; padding:12px; border-radius:4px; overflow:visible; white-space:pre-wrap; word-wrap:break-word; page-break-inside:avoid; font-family:"SF Mono","Fira Code",Menlo,monospace; font-size:12px; }'
+      + 'pre code { background:transparent; }'
+      + 'code { font-family:"SF Mono","Fira Code",Menlo,monospace; font-size:12px; background:#f1f3f5; padding:2px 4px; border-radius:3px; }'
+      + 'pre code { padding:0; background:transparent; }'
+      + 'ul, ol { padding-left:24px; }'
+      + 'li { margin:4px 0; }'
+      + 'hr { border:none; border-top:1px solid #dee2e6; margin:24px 0; }'
+      + 'blockquote { border-left:3px solid #4f46e5; padding-left:12px; color:#6c757d; margin:12px 0; }'
+      + 'table { border-collapse:collapse; width:100%; margin:12px 0; page-break-inside:avoid; }'
+      + 'th, td { border:1px solid #dee2e6; padding:6px 10px; text-align:left; }'
+      + 'th { background:#f8f9fa; }'
+      + 'a { color:#4f46e5; text-decoration:underline; }'
+      + '</style></head><body><div class="pdf-body">' + bodyHtml + '</div></body></html>';
+  }
+
+  function printHtmlAsPdf(title, bodyHtml) {
+    var w = window.open('', '_blank');
+    if (!w) {
+      try { showToast('Allow pop-ups to export PDF'); } catch (e) { alert('Allow pop-ups to export PDF'); }
+      return false;
+    }
+    w.document.open();
+    w.document.write(buildPrintDocument(title, bodyHtml));
+    w.document.close();
+    var triggered = false;
+    var trigger = function() {
+      if (triggered) return;
+      triggered = true;
+      try { w.focus(); w.print(); } catch (e) {}
+    };
+    if (w.document.readyState === 'complete') setTimeout(trigger, 150);
+    else w.addEventListener('load', function() { setTimeout(trigger, 150); });
+    return true;
+  }
+
   function downloadPdf() {
     var note = getActiveNote();
     if (!note) { showToast('No note selected'); return; }
     var el = document.getElementById('exportContent');
     if (!el.innerHTML.trim()) { showToast('Nothing to export'); return; }
-    if (typeof html2pdf === 'undefined') { showToast('PDF library loading... try again'); return; }
-    var pdfName = (note.title || 'untitled-note').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.pdf';
-    showToast('Generating PDF...');
-    html2pdf().set({
-      margin: [15,15,15,15], filename: pdfName,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all','css','legacy'] }
-    }).from(el).save().then(function() { showToast('PDF downloaded'); }).catch(function() { showToast('PDF generation failed'); });
+    var title = note.title || 'untitled-note';
+    if (printHtmlAsPdf(title, el.innerHTML)) showToast('Opening print dialog — choose "Save as PDF"');
   }
 
   function downloadMd() {
@@ -1399,14 +1438,7 @@
     document.getElementById('sharedDownloadPdf').addEventListener('click', function() {
       var el = document.getElementById('sharedContent');
       if (!el.innerHTML.trim()) return;
-      if (typeof html2pdf === 'undefined') { alert('PDF library still loading, try again.'); return; }
-      html2pdf().set({
-        margin: [15,15,15,15], filename: 'shared-document.pdf',
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all','css','legacy'] }
-      }).from(el).save();
+      printHtmlAsPdf('shared-document', el.innerHTML);
     });
 
     // Theme toggle for viewer
